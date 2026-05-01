@@ -1,51 +1,74 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import './App.css';
 import LoginPage from './LoginPage';
-import Dashboard from './Dashboard';
 import AttendanceLog from './AttendanceLog';
 import ProfileView from './ProfileView';
+import { clearSession, getTokenExpiryMs, isSessionValid } from './auth';
 
 function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(() => isSessionValid());
   const [currentPage, setCurrentPage] = useState('profile');
+
+  const handleLogout = useCallback(() => {
+    clearSession();
+    setIsAuthenticated(false);
+    setCurrentPage('profile');
+  }, []);
+
+  useEffect(() => {
+    if (!isAuthenticated) return undefined;
+
+    const expiry = getTokenExpiryMs();
+    const msUntilExpiry = expiry - Date.now();
+
+    if (msUntilExpiry <= 0) {
+      handleLogout();
+      return undefined;
+    }
+
+    const timeoutId = setTimeout(handleLogout, msUntilExpiry);
+
+    const onStorage = (event) => {
+      if (event.key === 'authToken' && !isSessionValid()) {
+        handleLogout();
+      }
+    };
+    window.addEventListener('storage', onStorage);
+
+    return () => {
+      clearTimeout(timeoutId);
+      window.removeEventListener('storage', onStorage);
+    };
+  }, [isAuthenticated, handleLogout]);
 
   const handleLoginSuccess = () => {
     setIsAuthenticated(true);
     setCurrentPage('profile');
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('authToken');
-    localStorage.removeItem('userData');
-    localStorage.removeItem('employeeId');
-    setIsAuthenticated(false);
-    setCurrentPage('dashboard');
-  };
+  const handleViewAttendance = () => setCurrentPage('attendance');
+  const handleViewProfile = () => setCurrentPage('profile');
 
-  const handleViewAttendance = () => {
-    setCurrentPage('attendance');
-  };
-
-  const handleViewProfile = () => {
-    setCurrentPage('profile');
-  };
-
-  const handleBackToDashboard = () => {
-    setCurrentPage('dashboard');
-  };
+  if (!isAuthenticated) {
+    return (
+      <div className="App">
+        <LoginPage onLoginSuccess={handleLoginSuccess} />
+      </div>
+    );
+  }
 
   return (
     <div className="App">
-      {isAuthenticated ? (
-        currentPage === 'attendance' ? (
-          <AttendanceLog onBack={handleBackToDashboard} onViewProfile={handleViewProfile} />
-        ) : currentPage === 'profile' ? (
-          <ProfileView onViewAttendance={handleViewAttendance} />
-        ) : (
-          <Dashboard onLogout={handleLogout} onViewAttendance={handleViewAttendance} onViewProfile={handleViewProfile} />
-        )
+      {currentPage === 'attendance' ? (
+        <AttendanceLog
+          onBack={handleViewProfile}
+          onLogout={handleLogout}
+        />
       ) : (
-        <LoginPage onLoginSuccess={handleLoginSuccess} />
+        <ProfileView
+          onViewAttendance={handleViewAttendance}
+          onLogout={handleLogout}
+        />
       )}
     </div>
   );

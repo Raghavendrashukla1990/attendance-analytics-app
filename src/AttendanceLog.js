@@ -1,35 +1,11 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import './AttendanceLog.css';
+import { getAuthHeader, getEmployeeId } from './auth';
 
 const DAILY_REQUIRED_HOURS = 10;
-const MONTHLY_START_DEDUCTION_HOURS = 5;
-const HALF_DAY_DEDUCTION_HOURS = 5;
-
-const getStoredUser = () => {
-  try {
-    return JSON.parse(localStorage.getItem('userData')) || {};
-  } catch {
-    return {};
-  }
-};
-
-const getEmployeeId = () => {
-  const user = getStoredUser();
-  return (
-    localStorage.getItem('employeeId') ||
-    user.employeeid ||
-    user.employeeId ||
-    user.empid ||
-    user.empId ||
-    user.id
-  );
-};
-
-const getAuthHeader = () => {
-  const token = localStorage.getItem('authToken') || '';
-  const cleanToken = token.replace(/^Bearer\s+/i, '').trim();
-  return cleanToken ? `Bearer ${cleanToken}` : '';
-};
+const MONTHLY_AUTO_DEDUCTION_HOURS = 5;
+const HALF_DAY_LEAVE_HOURS = 5;
+const FULL_DAY_LEAVE_HOURS = 10;
 
 const getField = (record, fields, fallback = '') => {
   const normalizedRecord = Object.keys(record || {}).reduce((acc, key) => {
@@ -188,19 +164,6 @@ const getDateKey = (dateString) => {
 
 const getCurrentMonthKey = () => getLocalDateKey().slice(0, 7);
 
-const getCurrentMonthBounds = () => {
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = today.getMonth();
-  const start = new Date(year, month, 1);
-  const end = new Date(year, month + 1, 0);
-
-  return {
-    start: getLocalDateKey(start),
-    end: getLocalDateKey(end)
-  };
-};
-
 const sortDates = (dates) => [...dates].sort((first, second) => first.localeCompare(second));
 
 const formatHours = (hours) => {
@@ -221,18 +184,66 @@ const isWeekend = (dateString) => {
   return day === 0 || day === 6;
 };
 
-function AttendanceLog({ onBack }) {
+const parseMonthKey = (monthKey) => {
+  const [yearStr, monthStr] = String(monthKey || '').split('-');
+  const year = Number(yearStr);
+  const month = Number(monthStr) - 1;
+  if (Number.isNaN(year) || Number.isNaN(month)) return null;
+  return { year, month };
+};
+
+const getMonthBounds = (monthKey) => {
+  const parsed = parseMonthKey(monthKey);
+  if (!parsed) return null;
+  const { year, month } = parsed;
+  const start = new Date(year, month, 1);
+  const end = new Date(year, month + 1, 0);
+  return {
+    year,
+    month,
+    daysInMonth: end.getDate(),
+    start: getLocalDateKey(start),
+    end: getLocalDateKey(end)
+  };
+};
+
+const countWeekdaysInMonth = (monthKey) => {
+  const bounds = getMonthBounds(monthKey);
+  if (!bounds) return 0;
+  let weekdays = 0;
+  for (let day = 1; day <= bounds.daysInMonth; day += 1) {
+    const dow = new Date(bounds.year, bounds.month, day).getDay();
+    if (dow !== 0 && dow !== 6) weekdays += 1;
+  }
+  return weekdays;
+};
+
+
+function AttendanceLog({ onBack, onLogout }) {
   const [attendanceData, setAttendanceData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [halfDayDates, setHalfDayDates] = useState([]);
-  const [selectedHalfDayDate, setSelectedHalfDayDate] = useState(getLocalDateKey());
+  const [fullDayDates, setFullDayDates] = useState([]);
+  const [selectedMonth, setSelectedMonth] = useState(() => getCurrentMonthKey());
 
   const currentMonthKey = useMemo(() => getCurrentMonthKey(), []);
-  const currentMonthBounds = useMemo(() => getCurrentMonthBounds(), []);
   const halfDayStorageKey = useMemo(() => {
-    return `attendanceHalfDays:${getEmployeeId() || 'current'}:${currentMonthKey}`;
-  }, [currentMonthKey]);
+    return `attendanceHalfDays:${getEmployeeId() || 'current'}:${selectedMonth}`;
+  }, [selectedMonth]);
+  const fullDayStorageKey = useMemo(() => {
+    return `attendanceFullDays:${getEmployeeId() || 'current'}:${selectedMonth}`;
+  }, [selectedMonth]);
+
+  const monthBounds = useMemo(() => getMonthBounds(selectedMonth), [selectedMonth]);
+  const isCurrentMonth = selectedMonth === currentMonthKey;
+  const monthLabel = useMemo(() => {
+    if (!monthBounds) return selectedMonth;
+    return new Date(monthBounds.year, monthBounds.month, 1).toLocaleDateString('en-US', {
+      month: 'long',
+      year: 'numeric'
+    });
+  }, [monthBounds, selectedMonth]);
 
   const fetchAttendanceData = useCallback(async () => {
     try {
@@ -252,12 +263,15 @@ function AttendanceLog({ onBack }) {
         return;
       }
 
-      // Get current month dates
-      const today = new Date();
-      const currentYear = today.getFullYear();
-      const currentMonth = String(today.getMonth() + 1).padStart(2, '0');
-      const fromDate = `${currentYear}-${currentMonth}-01`;
-      const toDate = `${currentYear}-${currentMonth}-${String(today.getDate()).padStart(2, '0')}`;
+      if (!monthBounds) {
+        setAttendanceData([]);
+        setError('Invalid month selected.');
+        return;
+      }
+
+      const fromDate = monthBounds.start;
+      const todayKey = getLocalDateKey();
+      const toDate = isCurrentMonth && todayKey < monthBounds.end ? todayKey : monthBounds.end;
 
       const response = await fetch('https://api.sumhr.io:3000/api/attendance/getattendancelog', {
         method: 'POST',
@@ -287,7 +301,7 @@ function AttendanceLog({ onBack }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [monthBounds, isCurrentMonth]);
 
   useEffect(() => {
     fetchAttendanceData();
@@ -296,19 +310,32 @@ function AttendanceLog({ onBack }) {
   useEffect(() => {
     try {
       const storedHalfDays = JSON.parse(localStorage.getItem(halfDayStorageKey)) || [];
-      const validHalfDays = storedHalfDays.filter((date) => String(date).startsWith(currentMonthKey));
+      const validHalfDays = storedHalfDays.filter((date) => String(date).startsWith(selectedMonth));
       setHalfDayDates(sortDates(validHalfDays));
     } catch {
       setHalfDayDates([]);
     }
-  }, [currentMonthKey, halfDayStorageKey]);
+
+    try {
+      const storedFullDays = JSON.parse(localStorage.getItem(fullDayStorageKey)) || [];
+      const validFullDays = storedFullDays.filter((date) => String(date).startsWith(selectedMonth));
+      setFullDayDates(sortDates(validFullDays));
+    } catch {
+      setFullDayDates([]);
+    }
+  }, [selectedMonth, halfDayStorageKey, fullDayStorageKey]);
 
   useEffect(() => {
     localStorage.setItem(halfDayStorageKey, JSON.stringify(sortDates(halfDayDates)));
   }, [halfDayDates, halfDayStorageKey]);
 
+  useEffect(() => {
+    localStorage.setItem(fullDayStorageKey, JSON.stringify(sortDates(fullDayDates)));
+  }, [fullDayDates, fullDayStorageKey]);
+
   const attendanceRows = useMemo(() => {
     const halfDayDateSet = new Set(halfDayDates);
+    const fullDayDateSet = new Set(fullDayDates);
 
     return attendanceData.map((record, index) => {
       const values = getRecordValues(record);
@@ -325,34 +352,48 @@ function AttendanceLog({ onBack }) {
         workedHours,
         weeklyOff,
         isHalfDay: halfDayDateSet.has(dateKey),
+        isFullDayLeave: fullDayDateSet.has(dateKey),
         balanceHours: workedHours - requiredHours,
         statusClass: String(values.status).toLowerCase().replace(/\s+/g, '-')
       };
     });
-  }, [attendanceData, halfDayDates]);
+  }, [attendanceData, halfDayDates, fullDayDates]);
 
   const monthlySummary = useMemo(() => {
     const totalWorkedHours = attendanceRows.reduce((sum, row) => sum + row.workedHours, 0);
-    const workingAttendanceDays = attendanceRows.filter((row) => !row.weeklyOff).length;
-    const totalWorkHours = workingAttendanceDays * DAILY_REQUIRED_HOURS;
-    const halfDayDeductedHours = halfDayDates.length * HALF_DAY_DEDUCTION_HOURS;
-    const totalDeductedHours = MONTHLY_START_DEDUCTION_HOURS + halfDayDeductedHours;
-    const remainingWorkHours = totalWorkHours - totalDeductedHours;
+    const presentDays = attendanceRows.filter((row) => /present/i.test(String(row.status))).length;
+    const absentDays = attendanceRows.filter((row) => /absent/i.test(String(row.status))).length;
+    const workingDays = countWeekdaysInMonth(selectedMonth);
+    const totalWorkHours = workingDays * DAILY_REQUIRED_HOURS;
+    const halfDayDeductedHours = halfDayDates.length * HALF_DAY_LEAVE_HOURS;
+    const fullDayDeductedHours = fullDayDates.length * FULL_DAY_LEAVE_HOURS;
+    const remainingWorkHours = (totalWorkedHours + MONTHLY_AUTO_DEDUCTION_HOURS + halfDayDeductedHours) - totalWorkHours;
+    const currentAvgWorkHours = presentDays > 0 ? totalWorkedHours / presentDays : 0;
+    const avgTargetWorkHours = workingDays > 0
+      ? (totalWorkHours - MONTHLY_AUTO_DEDUCTION_HOURS) / workingDays
+      : 0;
 
     return {
-      workingAttendanceDays,
+      presentDays,
+      absentDays,
+      workingDays,
       totalWorkedHours,
       totalWorkHours,
       halfDayDeductedHours,
-      totalDeductedHours,
+      fullDayDeductedHours,
       remainingWorkHours,
-      balanceHours: totalWorkedHours - totalWorkHours
+      currentAvgWorkHours,
+      avgTargetWorkHours
     };
-  }, [attendanceRows, halfDayDates]);
+  }, [attendanceRows, halfDayDates, fullDayDates, selectedMonth]);
 
   const toggleHalfDay = (dateString) => {
     const dateKey = getDateKey(dateString);
-    if (!dateKey || !dateKey.startsWith(currentMonthKey)) return;
+    if (!dateKey || !dateKey.startsWith(selectedMonth)) return;
+
+    setFullDayDates((currentDates) =>
+      currentDates.includes(dateKey) ? currentDates.filter((d) => d !== dateKey) : currentDates
+    );
 
     setHalfDayDates((currentDates) => {
       const nextDates = new Set(currentDates);
@@ -366,8 +407,29 @@ function AttendanceLog({ onBack }) {
     });
   };
 
-  const addSelectedHalfDay = () => {
-    toggleHalfDay(selectedHalfDayDate);
+  const toggleFullDayLeave = (dateString) => {
+    const dateKey = getDateKey(dateString);
+    if (!dateKey || !dateKey.startsWith(selectedMonth)) return;
+
+    setHalfDayDates((currentDates) =>
+      currentDates.includes(dateKey) ? currentDates.filter((d) => d !== dateKey) : currentDates
+    );
+
+    setFullDayDates((currentDates) => {
+      const nextDates = new Set(currentDates);
+      if (nextDates.has(dateKey)) {
+        nextDates.delete(dateKey);
+      } else {
+        nextDates.add(dateKey);
+      }
+
+      return sortDates(nextDates);
+    });
+  };
+
+  const clearAllLeaveMarks = () => {
+    setHalfDayDates([]);
+    setFullDayDates([]);
   };
 
   const formatDate = (dateString) => {
@@ -388,7 +450,6 @@ function AttendanceLog({ onBack }) {
   const formatTime = (timeString) => {
     try {
       if (!timeString) return '-';
-      // Assuming time format like "HH:MM:SS"
       return timeString.substring(0, 5);
     } catch {
       return timeString;
@@ -403,9 +464,21 @@ function AttendanceLog({ onBack }) {
   return (
     <div className="attendance-container">
       <header className="attendance-header">
-        <button onClick={onBack} className="back-btn">← Back</button>
-        <h1>Attendance Log - Current Month</h1>
-        <button onClick={fetchAttendanceData} className="refresh-btn">Refresh</button>
+        <button onClick={onBack} className="back-btn" type="button">← Profile</button>
+        <h1>Attendance Log - {monthLabel}</h1>
+        <div className="attendance-header-actions">
+          <label className="month-picker">
+            <span>Month</span>
+            <input
+              type="month"
+              value={selectedMonth}
+              max={currentMonthKey}
+              onChange={(event) => setSelectedMonth(event.target.value || currentMonthKey)}
+            />
+          </label>
+          <button onClick={fetchAttendanceData} className="refresh-btn" type="button">Refresh</button>
+          <button onClick={onLogout} className="logout-btn" type="button">Logout</button>
+        </div>
       </header>
 
       <main className="attendance-content">
@@ -414,17 +487,57 @@ function AttendanceLog({ onBack }) {
         {error && <div className="error-message">{error}</div>}
 
         {!loading && !error && attendanceData.length === 0 && (
-          <div className="no-data">No attendance records found for this month.</div>
+          <div className="no-data">No attendance records found for {monthLabel}.</div>
         )}
 
         {!loading && !error && attendanceData.length > 0 && (
           <>
+            <section className="summary-grid">
+              <div className="summary-card">
+                <span>Total Worked Hours</span>
+                <strong>{formatHours(monthlySummary.totalWorkedHours)}</strong>
+                <small>sum of daily Total Worked Hours</small>
+              </div>
+              <div className="summary-card">
+                <span>Total Working Hours</span>
+                <strong>{formatHours(monthlySummary.totalWorkHours)}</strong>
+                <small>{monthlySummary.workingDays} weekdays × {DAILY_REQUIRED_HOURS}h (Sat & Sun excluded)</small>
+                {(halfDayDates.length > 0 || fullDayDates.length > 0) && (
+                  <button
+                    type="button"
+                    className="clear-marks-btn"
+                    onClick={clearAllLeaveMarks}
+                    title={`Half-day: ${halfDayDates.join(', ') || 'none'}\nFull-day: ${fullDayDates.join(', ') || 'none'}`}
+                  >
+                    Clear {halfDayDates.length + fullDayDates.length} leave mark{halfDayDates.length + fullDayDates.length === 1 ? '' : 's'}
+                  </button>
+                )}
+              </div>
+              <div className={`summary-card ${monthlySummary.remainingWorkHours >= 0 ? 'positive' : 'negative'}`}>
+                <span>Remaining Work</span>
+                <strong>
+                  {monthlySummary.remainingWorkHours >= 0 ? '+' : '−'}{formatHours(Math.abs(monthlySummary.remainingWorkHours))}
+                </strong>
+              </div>
+              <div className="summary-card">
+                <span>Current Avg Timing</span>
+                <strong>{formatHours(monthlySummary.currentAvgWorkHours)}</strong>
+                <small>Total Worked Hours ÷ {monthlySummary.presentDays} present day{monthlySummary.presentDays === 1 ? '' : 's'}</small>
+              </div>
+              <div className="summary-card">
+                <span>Avg Timing</span>
+                <strong>{formatHours(monthlySummary.avgTargetWorkHours)}</strong>
+                <small>(Total Working Hours − {MONTHLY_AUTO_DEDUCTION_HOURS}h auto) ÷ {monthlySummary.workingDays} weekday{monthlySummary.workingDays === 1 ? '' : 's'}</small>
+              </div>
+            </section>
+
             <div className="table-wrapper">
               <table className="attendance-table">
                 <thead>
                   <tr>
                     <th>Attendance Date</th>
-                    <th>Half Day</th>
+                    <th>Half Day Leave</th>
+                    <th>Full Day Leave</th>
                     <th>In Time</th>
                     <th>Out Time</th>
                     <th>Work Duration</th>
@@ -433,40 +546,54 @@ function AttendanceLog({ onBack }) {
                     <th>Status</th>
                     <th>Total Worked Hours</th>
                     <th>Total Work Hours</th>
-                    <th>Day Balance</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {attendanceRows.map((row) => (
-                    <tr key={row.id} className={`status-${row.statusClass}`}>
-                      <td>{formatDate(row.date)}</td>
-                      <td>
-                        <label className="half-day-toggle">
-                          <input
-                            type="checkbox"
-                            checked={row.isHalfDay}
-                            onChange={() => toggleHalfDay(row.dateKey)}
-                          />
-                          <span>{row.isHalfDay ? 'Marked' : 'No'}</span>
-                        </label>
-                      </td>
-                      <td>{formatTime(row.checkIn)}</td>
-                      <td>{formatTime(row.checkOut)}</td>
-                      <td>{formatDuration(row.workDuration)}</td>
-                      <td>{formatDuration(row.breakDuration)}</td>
-                      <td>{formatDuration(row.lateBy)}</td>
-                      <td>
-                        <span className={`badge badge-${row.statusClass}`}>
-                          {row.status}
-                        </span>
-                      </td>
-                      <td>{formatHours(row.workedHours)}</td>
-                      <td>{row.weeklyOff ? 'Weekly off' : formatHours(row.requiredHours)}</td>
-                      <td className={row.balanceHours >= 0 ? 'hours-positive' : 'hours-negative'}>
-                        {row.balanceHours >= 0 ? '+' : '-'}{formatHours(Math.abs(row.balanceHours))}
-                      </td>
-                    </tr>
-                  ))}
+                  {attendanceRows.map((row) => {
+                    const rowClasses = [
+                      `status-${row.statusClass}`,
+                      row.isHalfDay ? 'marked-half-day' : '',
+                      row.isFullDayLeave ? 'marked-full-day-leave' : ''
+                    ].filter(Boolean).join(' ');
+
+                    return (
+                      <tr key={row.id} className={rowClasses}>
+                        <td>{formatDate(row.date)}</td>
+                        <td>
+                          <label className="half-day-toggle">
+                            <input
+                              type="checkbox"
+                              checked={row.isHalfDay}
+                              onChange={() => toggleHalfDay(row.dateKey)}
+                            />
+                            <span>{row.isHalfDay ? `−${HALF_DAY_LEAVE_HOURS}h` : 'No'}</span>
+                          </label>
+                        </td>
+                        <td>
+                          <label className="leave-day-toggle">
+                            <input
+                              type="checkbox"
+                              checked={row.isFullDayLeave}
+                              onChange={() => toggleFullDayLeave(row.dateKey)}
+                            />
+                            <span>{row.isFullDayLeave ? `−${FULL_DAY_LEAVE_HOURS}h` : 'No'}</span>
+                          </label>
+                        </td>
+                        <td>{formatTime(row.checkIn)}</td>
+                        <td>{formatTime(row.checkOut)}</td>
+                        <td>{formatDuration(row.workDuration)}</td>
+                        <td>{formatDuration(row.breakDuration)}</td>
+                        <td>{formatDuration(row.lateBy)}</td>
+                        <td>
+                          <span className={`badge badge-${row.statusClass}`}>
+                            {row.status}
+                          </span>
+                        </td>
+                        <td>{formatHours(row.workedHours)}</td>
+                        <td>{row.weeklyOff ? 'Weekly off' : formatHours(row.requiredHours)}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

@@ -21,11 +21,19 @@
 }
 
 .login-box h1 {
-  margin: 0 0 28px;
+  margin: 0 0 8px;
   color: #0f172a;
   font-size: 32px;
   font-weight: 900;
   line-height: 1.1;
+  text-align: center;
+}
+
+.login-subtitle {
+  margin: 0 0 26px;
+  color: #64748b;
+  font-size: 14px;
+  font-weight: 600;
   text-align: center;
 }
 

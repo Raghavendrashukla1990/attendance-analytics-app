@@ -1,38 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import './ProfileView.css';
-
-const getStoredUser = () => {
-  try {
-    return JSON.parse(localStorage.getItem('userData')) || {};
-  } catch {
-    return {};
-  }
-};
-
-const getEmployeeId = () => {
-  const user = getStoredUser();
-  return (
-    localStorage.getItem('employeeId') ||
-    user.employeeid ||
-    user.employeeId ||
-    user.empid ||
-    user.empId ||
-    user.id
-  );
-};
-
-const getAuthHeader = () => {
-  const token = localStorage.getItem('authToken') || '';
-  const cleanToken = token.replace(/^Bearer\s+/i, '').trim();
-  return cleanToken ? `Bearer ${cleanToken}` : '';
-};
+import { getAuthHeader, getEmployeeId } from './auth';
 
 const getDisplayValue = (value) => {
   if (value === undefined || value === null || value === '') return '-';
   return value;
 };
 
-function ProfileView({ onViewAttendance }) {
+function ProfileView({ onViewAttendance, onLogout }) {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -100,9 +75,12 @@ function ProfileView({ onViewAttendance }) {
   return (
     <div className="profile-container">
       <header className="profile-header">
-        <button onClick={onViewAttendance} className="profile-attendance-btn">View Attendance</button>
         <h1>Employee Profile</h1>
-        <button onClick={fetchProfile} className="profile-refresh-btn">Refresh</button>
+        <div className="profile-header-actions">
+          <button onClick={fetchProfile} className="profile-refresh-btn" type="button">Refresh</button>
+          <button onClick={onViewAttendance} className="profile-attendance-btn" type="button">View Attendance →</button>
+          <button onClick={onLogout} className="profile-logout-btn" type="button">Logout</button>
+        </div>
       </header>
 
       <main className="profile-content">
@@ -124,7 +102,7 @@ function ProfileView({ onViewAttendance }) {
                   <h2>{getDisplayValue(profile.fullname || `${profile.firstname || ''} ${profile.lastname || ''}`.trim())}</h2>
                   <p>{getDisplayValue(profile.designationname)} · {getDisplayValue(profile.departmentname)}</p>
                 </div>
-                <button onClick={onViewAttendance} className="profile-hero-action">
+                <button onClick={onViewAttendance} className="profile-hero-action" type="button">
                   Open Attendance
                 </button>
               </div>

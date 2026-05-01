@@ -29,29 +29,56 @@
   font-size: 22px;
   font-weight: 900;
   line-height: 1.2;
-  text-align: center;
+}
+
+.profile-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .profile-attendance-btn,
-.profile-refresh-btn {
+.profile-refresh-btn,
+.profile-logout-btn {
   width: auto;
   padding: 10px 16px;
-  border: 1px solid rgba(15, 118, 110, 0.22);
   border-radius: 8px;
   box-shadow: 0 8px 22px rgba(15, 23, 42, 0.07);
   font-size: 14px;
   font-weight: 850;
   white-space: nowrap;
+  cursor: pointer;
+  transition: transform 180ms ease, box-shadow 180ms ease, background 180ms ease, color 180ms ease;
 }
 
 .profile-attendance-btn {
   color: #ffffff;
   background: linear-gradient(135deg, #0f766e, #115e59);
+  border: 1px solid rgba(15, 118, 110, 0.22);
 }
 
 .profile-refresh-btn {
   color: #0f766e;
   background: #ffffff;
+  border: 1px solid rgba(15, 118, 110, 0.22);
+}
+
+.profile-logout-btn {
+  color: #be123c;
+  background: #ffffff;
+  border: 1px solid rgba(225, 29, 72, 0.24);
+}
+
+.profile-logout-btn:hover {
+  color: #ffffff;
+  background: linear-gradient(135deg, #e11d48, #9f1239);
+  box-shadow: 0 16px 30px rgba(225, 29, 72, 0.2);
+}
+
+.profile-attendance-btn:hover,
+.profile-refresh-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 16px 30px rgba(15, 118, 110, 0.18);
 }
 
 .profile-content {
@@ -240,8 +267,13 @@
     text-align: left;
   }
 
+  .profile-header-actions {
+    flex-direction: column;
+  }
+
   .profile-attendance-btn,
   .profile-refresh-btn,
+  .profile-logout-btn,
   .profile-hero-action {
     width: 100%;
   }

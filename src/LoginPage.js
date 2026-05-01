@@ -1,11 +1,18 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import './LoginPage.css';
+import { getTokenExpiryMs, isSessionValid } from './auth';
 
 function LoginPage({ onLoginSuccess }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (isSessionValid()) {
+      onLoginSuccess();
+    }
+  }, [onLoginSuccess]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -35,12 +42,17 @@ function LoginPage({ onLoginSuccess }) {
         const token = user.token.replace(/^Bearer\s+/i, '').trim();
         const employeeId = user.employeeid || user.employeeId || user.empid || user.empId || user.id;
 
-        // Save token to localStorage
         localStorage.setItem('authToken', token);
         localStorage.setItem('userData', JSON.stringify(user));
 
         if (employeeId) {
           localStorage.setItem('employeeId', String(employeeId));
+        }
+
+        const expiry = getTokenExpiryMs(token);
+        if (!expiry || expiry <= Date.now()) {
+          setError('Login succeeded but the session token is missing or already expired. Please contact support.');
+          return;
         }
 
         onLoginSuccess();
@@ -59,9 +71,10 @@ function LoginPage({ onLoginSuccess }) {
     <div className="login-container">
       <div className="login-box">
         <h1>Attendance Panel</h1>
+        <p className="login-subtitle">Sign in to view your profile and attendance</p>
         <form onSubmit={handleLogin}>
           <div className="form-group">
-            <label htmlFor="username">Username:</label>
+            <label htmlFor="username">Username</label>
             <input
               id="username"
               type="text"
@@ -74,7 +87,7 @@ function LoginPage({ onLoginSuccess }) {
           </div>
 
           <div className="form-group">
-            <label htmlFor="password">Password:</label>
+            <label htmlFor="password">Password</label>
             <input
               id="password"
               type="password"
@@ -89,7 +102,7 @@ function LoginPage({ onLoginSuccess }) {
           {error && <div className="error-message">{error}</div>}
 
           <button type="submit" disabled={loading}>
-            {loading ? 'Logging in...' : 'Login'}
+            {loading ? 'Signing in...' : 'Sign In'}
           </button>
         </form>
       </div>

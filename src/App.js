@@ -1,23 +1,52 @@
-import logo from './logo.svg';
+import React, { useState } from 'react';
 import './App.css';
+import LoginPage from './LoginPage';
+import Dashboard from './Dashboard';
+import AttendanceLog from './AttendanceLog';
+import ProfileView from './ProfileView';
 
 function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [currentPage, setCurrentPage] = useState('profile');
+
+  const handleLoginSuccess = () => {
+    setIsAuthenticated(true);
+    setCurrentPage('profile');
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('userData');
+    localStorage.removeItem('employeeId');
+    setIsAuthenticated(false);
+    setCurrentPage('dashboard');
+  };
+
+  const handleViewAttendance = () => {
+    setCurrentPage('attendance');
+  };
+
+  const handleViewProfile = () => {
+    setCurrentPage('profile');
+  };
+
+  const handleBackToDashboard = () => {
+    setCurrentPage('dashboard');
+  };
+
   return (
     <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
+      {isAuthenticated ? (
+        currentPage === 'attendance' ? (
+          <AttendanceLog onBack={handleBackToDashboard} onViewProfile={handleViewProfile} />
+        ) : currentPage === 'profile' ? (
+          <ProfileView onViewAttendance={handleViewAttendance} />
+        ) : (
+          <Dashboard onLogout={handleLogout} onViewAttendance={handleViewAttendance} onViewProfile={handleViewProfile} />
+        )
+      ) : (
+        <LoginPage onLoginSuccess={handleLoginSuccess} />
+      )}
     </div>
   );
 }
